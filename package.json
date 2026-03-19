@@ -1,0 +1,22 @@
+{
+  "name": "annadata-vad-dt",
+  "version": "1.0.0",
+  "description": "Global voice-to-text with ghost typing",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "electron": "^41.0.3"
+  },
+  "dependencies": {
+    "node-global-key-listener": "^0.3.0",
+    "@deepgram/sdk": "^3.9.0",
+    "@nut-tree-fork/nut-js": "^4.2.0"
+  }
+}

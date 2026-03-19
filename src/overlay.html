@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: transparent;
+      -webkit-app-region: drag;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+    .pill {
+      background: rgba(20, 20, 20, 0.88);
+      border-radius: 24px;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .dot { width: 12px; height: 12px; border-radius: 50%; background: #555; transition: background 0.2s; }
+    .dot.active { background: #ff4444; animation: pulse 1.2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .text { color: #ccc; font-size: 13px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  </style>
+</head>
+<body>
+  <div class="pill">
+    <div class="dot" id="dot"></div>
+    <div class="text" id="text">Ready</div>
+  </div>
+  <script>
+    const dot = document.getElementById('dot');
+    const textEl = document.getElementById('text');
+    let mediaStream = null;
+    let audioContext = null;
+    let processor = null;
+    let chunkCount = 0;
+
+    async function startMic() {
+      console.log('🎤 Requesting mic access...');
+      chunkCount = 0;
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            channelCount: 1,
+            sampleRate: 16000,
+            echoCancellation: true,
+            noiseSuppression: true,
+          }
+        });
+        console.log('🎤 Mic access GRANTED, tracks:', mediaStream.getAudioTracks().map(t => t.label));
+
+        audioContext = new AudioContext({ sampleRate: 16000 });
+        console.log('🔊 AudioContext created, actual sampleRate:', audioContext.sampleRate);
+
+        const source = audioContext.createMediaStreamSource(mediaStream);
+        processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+        processor.onaudioprocess = (e) => {
+          const float32 = e.inputBuffer.getChannelData(0);
+
+          // Check if audio is silent (all zeros)
+          let maxVal = 0;
+          for (let i = 0; i < float32.length; i++) {
+            const abs = Math.abs(float32[i]);
+            if (abs > maxVal) maxVal = abs;
+          }
+
+          chunkCount++;
+          if (chunkCount <= 5 || chunkCount % 100 === 0) {
+            console.log(`🎵 Audio chunk #${chunkCount}, samples: ${float32.length}, peak: ${maxVal.toFixed(4)}, silent: ${maxVal < 0.001}`);
+          }
+
+          // Convert Float32 [-1,1] to Int16 LE
+          const int16 = new Int16Array(float32.length);
+          for (let i = 0; i < float32.length; i++) {
+            const s = Math.max(-1, Math.min(1, float32[i]));
+            int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+          }
+
+          // Send as regular array buffer via IPC
+          window.stt.sendAudio(int16.buffer);
+        };
+
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+        console.log('🔊 Audio pipeline connected and running');
+      } catch (err) {
+        console.error('❌ Mic error:', err.name, err.message);
+        textEl.textContent = 'Mic error: ' + err.message;
+      }
+    }
+
+    function stopMic() {
+      console.log(`🔇 Stopping mic. Total chunks captured: ${chunkCount}`);
+      if (processor) { processor.disconnect(); processor = null; }
+      if (audioContext) { audioContext.close(); audioContext = null; }
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(t => t.stop());
+        mediaStream = null;
+      }
+    }
+
+    window.stt.onRecordingState((active) => {
+      console.log('📢 Recording state changed:', active);
+      dot.classList.toggle('active', active);
+      if (active) {
+        textEl.textContent = 'Listening...';
+        startMic();
+      } else {
+        textEl.textContent = 'Ready';
+        stopMic();
+      }
+    });
+
+    window.stt.onTranscript(({ text, isFinal }) => {
+      console.log(`📜 Transcript received: [${isFinal ? 'FINAL' : 'interim'}] "${text}"`);
+      textEl.textContent = text;
+      textEl.style.color = isFinal ? '#fff' : '#aaa';
+    });
+
+    console.log('✅ Overlay renderer loaded');
+  </script>
+</body>
+</html>
