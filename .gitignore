@@ -36,7 +36,7 @@ coverage/
 *.tgz
 .npm/
 
-# WASM build artifacts (keep dist/wasm/ tracked if pre-built)
+# WASM build artifacts (keep libs/wasm/ tracked if pre-built)
 build-wasm/
 
 # Downloaded whisper models

@@ -52,10 +52,10 @@ git submodule update --init
 ./build-native-web.sh
 
 # Copy the built WASM to this project
-cp -r dist/wasm ../../dist/wasm
+cp -r dist/wasm ../../libs/wasm
 ```
 
-This produces `dist/wasm/whisper.js` (single-file with embedded WASM binary).
+This produces `libs/wasm/whisper.js` (single-file with embedded WASM binary).
 
 ## Available Models
 
