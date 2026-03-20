@@ -16,7 +16,6 @@
   },
   "dependencies": {
     "node-global-key-listener": "^0.3.0",
-    "@deepgram/sdk": "^3.9.0",
     "@nut-tree-fork/nut-js": "^4.2.0"
   }
 }

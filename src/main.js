@@ -2,21 +2,23 @@ const { app, BrowserWindow, ipcMain, Tray, Menu, globalShortcut, screen } = requ
 const path = require('path');
 const { GhostTyper } = require('./ghost-typer');
 const { SttEngine } = require('./stt-engine');
+const { ModelManager } = require('./model-manager');
+const { langOptions } = require('./lang-options');
 
 let mainWindow = null;
 let tray = null;
 let isRecording = false;
 let sttEngine = null;
 let ghostTyper = null;
-let audioChunkCount = 0;
+let modelManager = null;
 
 function createWindow() {
   const { width: screenW } = screen.getPrimaryDisplay().workAreaSize;
 
   mainWindow = new BrowserWindow({
-    width: 320,
-    height: 120,
-    x: Math.round((screenW - 320) / 2),
+    width: 280,
+    height: 80,
+    x: Math.round((screenW - 280) / 2),
     y: 40,
     frame: false,
     transparent: true,
@@ -32,10 +34,20 @@ function createWindow() {
     },
   });
 
+  // Enable SharedArrayBuffer for whisper.wasm pthreads
+  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Cross-Origin-Opener-Policy': ['same-origin'],
+        'Cross-Origin-Embedder-Policy': ['require-corp'],
+      },
+    });
+  });
+
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   mainWindow.loadFile(path.join(__dirname, 'overlay.html'));
 
-  // Log renderer console messages to main terminal
   mainWindow.webContents.on('console-message', (_, level, message) => {
     console.log(`[renderer] ${message}`);
   });
@@ -61,18 +73,18 @@ async function toggleRecording() {
   isRecording = !isRecording;
 
   if (isRecording) {
-    console.log('🎙️ Recording started');
-    audioChunkCount = 0;
+    try {
+      await sttEngine.start();
+    } catch (err) {
+      console.error('❌ Failed to start STT:', err.message);
+      mainWindow?.webContents.send('stt-error', err.message);
+      isRecording = false;
+      return;
+    }
     mainWindow.show();
-
-    // Start Deepgram FIRST, wait for it to be ready, THEN start mic
-    await sttEngine.start();
-    console.log('📡 Deepgram ready, now starting mic in renderer...');
     mainWindow.webContents.send('recording-state', true);
     tray.setToolTip('Voice STT — Recording...');
   } else {
-    console.log('⏹️ Recording stopped');
-    console.log(`📊 Total audio chunks received from renderer: ${audioChunkCount}`);
     mainWindow.webContents.send('recording-state', false);
     tray.setToolTip('Voice STT — Idle');
     await sttEngine.stop();
@@ -81,34 +93,23 @@ async function toggleRecording() {
 }
 
 app.whenReady().then(async () => {
-  // Check and request microphone permission on macOS
   if (process.platform === 'darwin') {
     const { systemPreferences } = require('electron');
     const micStatus = systemPreferences.getMediaAccessStatus('microphone');
-    console.log(`🎤 macOS mic permission status: "${micStatus}"`);
     if (micStatus !== 'granted') {
-      console.log('🎤 Requesting microphone access...');
-      try {
-        const granted = await systemPreferences.askForMediaAccess('microphone');
-        console.log(`🎤 Mic access ${granted ? 'GRANTED ✅' : 'DENIED ❌'}`);
-        if (!granted) {
-          console.error('❌ Microphone access denied. Go to System Settings > Privacy & Security > Microphone and enable it for Electron.');
-        }
-      } catch (err) {
-        console.error('❌ Error requesting mic access:', err.message);
-      }
+      try { await systemPreferences.askForMediaAccess('microphone'); } catch (_) {}
     }
   }
 
+  modelManager = new ModelManager();
   ghostTyper = new GhostTyper();
+
   sttEngine = new SttEngine({
     onInterim: (text, prevText) => {
-      console.log(`🖊️ Ghost typing interim: "${text}"`);
       ghostTyper.handleInterim(text, prevText);
       mainWindow?.webContents.send('transcript', { text, isFinal: false });
     },
     onFinal: (text) => {
-      console.log(`🖊️ Ghost typing FINAL: "${text}"`);
       ghostTyper.handleFinal(text);
       mainWindow?.webContents.send('transcript', { text, isFinal: true });
     },
@@ -117,26 +118,45 @@ app.whenReady().then(async () => {
   createWindow();
   createTray();
 
-  // Receive PCM audio chunks from renderer and forward to Deepgram
-  ipcMain.on('audio-chunk', (_, data) => {
-    audioChunkCount++;
-    if (audioChunkCount <= 3 || audioChunkCount % 50 === 0) {
-      console.log(`🔈 Audio chunk #${audioChunkCount}, size: ${data?.byteLength || data?.length || 'unknown'} bytes`);
-    }
-    sttEngine.sendAudio(data);
+  // ── IPC ──
+
+  ipcMain.on('whisper-interim', (_, text) => sttEngine.handleInterim(text));
+  ipcMain.on('whisper-final', (_, text) => sttEngine.handleFinal(text));
+  ipcMain.on('set-language', (_, lang) => sttEngine.setLanguage(lang));
+
+  ipcMain.handle('get-language', () => sttEngine.getLanguage());
+  ipcMain.handle('get-lang-options', () => langOptions);
+
+  // Check if a model URL is already downloaded locally
+  ipcMain.handle('is-model-downloaded', (_, url) => modelManager.isDownloaded(url));
+  ipcMain.handle('get-model-path', (_, url) => modelManager.getModelPath(url));
+
+  // Read model file bytes from disk → renderer (avoids file:// fetch issues)
+  ipcMain.handle('read-model-file', (_, localPath) => {
+    const fs = require('fs');
+    if (!localPath || !fs.existsSync(localPath)) return null;
+    return fs.readFileSync(localPath);
   });
 
-  // Global hotkey
+  // Download model by URL, sends progress events
+  ipcMain.handle('download-model', async (_, url) => {
+    try {
+      const localPath = await modelManager.downloadModel(url, (progress) => {
+        mainWindow?.webContents.send('download-progress', progress);
+      });
+      return { success: true, path: localPath };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
   const registered = globalShortcut.register('CommandOrControl+Shift+Space', toggleRecording);
-  if (registered) {
-    console.log('✅ Hotkey Ctrl+Shift+Space registered successfully.');
-  } else {
-    console.error('⚠️  Failed to register Ctrl+Shift+Space — may be claimed by OS.');
-    const fallback = globalShortcut.register('CommandOrControl+Shift+H', toggleRecording);
-    if (fallback) console.log('✅ Fallback hotkey Ctrl+Shift+H registered.');
+  if (!registered) {
+    globalShortcut.register('CommandOrControl+Shift+H', toggleRecording);
   }
 
-  console.log('✅ App ready. Use the hotkey or tray icon to toggle recording.');
+  console.log('✅ App ready.');
+  console.log(`📁 Models: ${modelManager.getModelsDir()}`);
 });
 
 app.on('will-quit', () => globalShortcut.unregisterAll());

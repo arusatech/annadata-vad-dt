@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+ref-code/
 
 # Environment variables
 .env
@@ -34,6 +35,12 @@ coverage/
 # npm
 *.tgz
 .npm/
+
+# WASM build artifacts (keep dist/wasm/ tracked if pre-built)
+build-wasm/
+
+# Downloaded whisper models
+*.bin
 
 # Optional caches
 .eslintcache
