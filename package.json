@@ -1,21 +1,44 @@
 {
   "name": "annadata-vad-dt",
   "version": "1.0.0",
-  "description": "Global voice-to-text with ghost typing",
-  "main": "src/main.js",
+  "private": true,
+  "description": "Global voice-to-text with ghost typing — Electron desktop app",
+  "main": "electron/main.cjs",
   "scripts": {
-    "start": "electron .",
-    "dev": "electron . --dev"
+    "start": "electron electron/main.cjs",
+    "electron": "electron electron/main.cjs",
+    "test": "vitest --run",
+    "pack": "electron-builder --mac --dir",
+    "dist": "electron-builder --mac"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
+  "build": {
+    "appId": "com.annadata.vad-dt",
+    "productName": "annadata-vad-dt",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": "dmg",
+      "entitlements": "entitlements.mac.plist",
+      "entitlementsInherit": "entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "annadata-vad-dt needs microphone access for voice recording and transcription."
+      }
+    },
+    "files": [
+      "electron/**/*",
+      "src/**/*",
+      "assets/**/*",
+      "libs/**/*",
+      "public/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    }
+  },
   "devDependencies": {
-    "electron": "^41.0.3"
-  },
-  "dependencies": {
-    "node-global-key-listener": "^0.3.0",
-    "@nut-tree-fork/nut-js": "^4.2.0"
+    "electron": "^35.0.0",
+    "electron-builder": "^26.0.0",
+    "fake-indexeddb": "^6.2.5",
+    "fast-check": "^4.6.0",
+    "vitest": "^4.1.0"
   }
 }

@@ -1,12 +1,10 @@
 /**
  * Language options for whisper.cpp STT.
- * Each entry maps to a specific whisper model.
  * url: Hugging Face GGML model URL. null = not yet available (shown greyed out).
  */
-
 const HF = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main';
 
-const langOptions = {
+export const langOptions = {
   'en': { name: 'English', whisper: 'en', url: `${HF}/ggml-base.en.bin` },
   'hi': { name: 'हिन्दी', whisper: 'hi', url: `${HF}/ggml-small.bin` },
   'ta': { name: 'தமிழ்', whisper: 'ta', url: `${HF}/ggml-small.bin` },
@@ -39,5 +37,3 @@ const langOptions = {
   'pl': { name: 'Polski', whisper: 'pl', url: `${HF}/ggml-small.bin` },
   'he': { name: 'עברית', whisper: 'he', url: `${HF}/ggml-small.bin` },
 };
-
-module.exports = { langOptions };
